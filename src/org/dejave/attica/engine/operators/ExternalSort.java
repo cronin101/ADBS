@@ -147,12 +147,6 @@ public class ExternalSort extends UnaryOperator {
       int runPageOffset = 0;
       PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
       Page currentRunPage = new Page(relation, currentRunPageID);
-      RelationIOManager currentRunManager = new RelationIOManager(
-        sm,
-        relation,
-        currentRunFilename
-      );
-
 
       while (thisQ.peek() != null) {
         // Write the lowest key from current Queue into current Run.
