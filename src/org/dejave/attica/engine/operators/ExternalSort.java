@@ -63,8 +63,6 @@ public class ExternalSort extends UnaryOperator {
     /** Reusable tuple list for returns. */
     private List<Tuple> returnList;
 
-    private static Instrumentation globalInstrumentation;
-
     private TupleComparator comparator;
 
     
