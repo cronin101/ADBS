@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
 import org.dejave.attica.storage.TupleComparator;
-import org.dejave.attica.storage.TupleIOManager;
 
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
