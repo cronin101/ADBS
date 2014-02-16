@@ -30,6 +30,8 @@ import org.dejave.attica.storage.FileUtil;
 
 import java.lang.instrument.Instrumentation;
 import java.util.PriorityQueue;
+import java.util.HashMap;
+import java.util.Iterator;
 
 /**
  * ExternalSort: Your implementation of sorting.
@@ -120,13 +122,12 @@ public class ExternalSort extends UnaryOperator {
     private ArrayList<String> doReplacementSelection(Relation relation) throws StorageManagerException, EngineException {
       ArrayList<String> runFiles = new ArrayList<String>();
 
-      // FIXME: Making the assumption that at least one tuple is in stream.
       Tuple nextTuple = getInputOperator().getNext();
 
       // Find out how many Tuples we can initialize our heap with.
       int tupleSize = (int) globalInstrumentation.getObjectSize(nextTuple);
       Sizes sizeConstants = new Sizes();
-      // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for RelationalIO output
+      // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
       int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
       int initialHeapTupCount = heapBudget / tupleSize;
 
@@ -196,6 +197,77 @@ public class ExternalSort extends UnaryOperator {
       return runFiles;
     }
 
+    public String mergeRunFiles(Relation relation, ArrayList<String> runFiles) throws java.io.IOException, StorageManagerException {
+      String mergedFile;
+      mergedFile = FileUtil.createTempFileName();
+
+      ArrayList<String> thisStage = runFiles;
+      ArrayList<String> tempFiles = new ArrayList<String>();
+      ArrayList<String> nextStage = new ArrayList<String>();
+
+      while (!thisStage.isEmpty()) {
+        // Take up to B-1 runFiles for k-way merge
+        int sliceIndex = Math.min(buffers - 2, thisStage.size() - 1);
+        List<String> runSlice = thisStage.subList(0, sliceIndex);
+
+        String mergeStepFile = FileUtil.createTempFileName();
+        tempFiles.add(mergeStepFile);
+        nextStage.add(mergeStepFile);
+        int pageOffset = 0;
+        PageIdentifier mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
+        Page mergedPage = new Page(relation, mergedPageID);
+
+        HashMap<Tuple, Iterator<Tuple>> streamMap = new HashMap<Tuple, Iterator<Tuple>>();
+        PriorityQueue<Tuple> frontier = new PriorityQueue<Tuple>(sliceIndex + 1, comparator);
+        for (String fileName : runSlice) {
+          Iterator<Tuple> stream = new RelationIOManager(sm, relation, fileName).tuples().iterator();
+          if (stream.hasNext()){
+            Tuple head = stream.next();
+            streamMap.put(head, stream);
+            frontier.add(head);
+          }
+        }
+        runSlice.clear();
+
+        while (frontier.peek() != null) {
+          // Remove lowest from PQ
+          Tuple lowest = frontier.poll();
+
+          // Add to step Page
+          if (!mergedPage.hasRoom(lowest)) {
+            sm.writePage(mergedPage);
+            pageOffset++;
+            mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
+            mergedPage = new Page(relation, mergedPageID);
+          }
+          mergedPage.addTuple(lowest);
+
+          // Update frontier
+          Iterator<Tuple> incrementedStream = streamMap.remove(lowest);
+          if (incrementedStream.hasNext()) {
+            Tuple head = incrementedStream.next();
+            streamMap.put(head, incrementedStream);
+            frontier.add(head);
+          }
+        }
+        sm.writePage(mergedPage);
+
+        if (thisStage.isEmpty()) {
+          // Another pass is needed if nextStage is not completely merged.
+          if (nextStage.size() > 1) {
+            thisStage = nextStage;
+            nextStage = new ArrayList<String>();
+          }
+        }
+      }
+
+      mergedFile = nextStage.get(0);
+
+      //Clean-up all files apart from returned, merged file
+
+      return mergedFile;
+    }
+
     /**
      * Sets up this external sort operator.
      * 
@@ -205,7 +277,9 @@ public class ExternalSort extends UnaryOperator {
     public void setup() throws EngineException {
         returnList = new ArrayList<Tuple>();
         try {
-              ArrayList<String> runFiles = doReplacementSelection(getInputOperator().getOutputRelation());
+              Relation relation = getInputOperator().getOutputRelation();
+              ArrayList<String> runFiles = doReplacementSelection(relation);
+              String mergedFile = mergeRunFiles(relation, runFiles);
 
 
             
