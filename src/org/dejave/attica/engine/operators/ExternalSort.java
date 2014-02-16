@@ -311,7 +311,7 @@ public class ExternalSort extends UnaryOperator {
         }
         catch (Exception sme) {
             throw new EngineException("Could not store and sort"
-                                      + " intermediate files.", sme);
+                                      + "intermediate files.", sme);
         }
     } // setup()
 
