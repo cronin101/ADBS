@@ -1,0 +1,9 @@
+org.dejave.attica.engine.algebra
+org.dejave.attica.engine.operators
+org.dejave.attica.engine.optimiser
+org.dejave.attica.engine.predicates
+org.dejave.attica.model
+org.dejave.attica.server
+org.dejave.attica.sql.parser
+org.dejave.attica.storage
+org.dejave.util
