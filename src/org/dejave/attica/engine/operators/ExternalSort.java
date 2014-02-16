@@ -16,6 +16,7 @@ import java.util.ArrayList;
 
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
+import org.dejave.attica.storage.TupleComparator;
 
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
@@ -25,6 +26,7 @@ import org.dejave.attica.storage.Sizes;
 import org.dejave.attica.storage.FileUtil;
 
 import java.lang.instrument.Instrumentation;
+import java.util.PriorityQueue;
 
 /**
  * ExternalSort: Your implementation of sorting.
@@ -57,6 +59,10 @@ public class ExternalSort extends UnaryOperator {
 
     private static Instrumentation globalInstrumentation;
 
+    private TupleComparator comparator;
+
+    private List<String> runFiles;
+
     
     /**
      * Constructs a new external sort operator.
@@ -76,6 +82,7 @@ public class ExternalSort extends UnaryOperator {
         super(operator);
         this.sm = sm;
         this.slots = slots;
+        comparator = new TupleComparator(slots);
         this.buffers = buffers;
         try {
             // create the temporary output files
@@ -135,6 +142,17 @@ public class ExternalSort extends UnaryOperator {
             // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for RelationalIO output
             int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
             int initialHeapTupCount = heapBudget / tupleSize;
+
+            // Initialize the Priority Queue
+            // The lack of O(n) #heapify with a custom comparator is incredibly upsetting.
+            PriorityQueue thisQ = new PriorityQueue(initialHeapTupCount, comparator);
+            for (int added = 0; added < initialHeapTupCount; added++) {
+              if (nextTuple instanceof EndOfStreamTuple) break;
+              thisQ.add(nextTuple);
+              nextTuple = getInputOperator().getNext();
+            }
+
+            PriorityQueue nextQ = new PriorityQueue(0, comparator);
 
 
             
