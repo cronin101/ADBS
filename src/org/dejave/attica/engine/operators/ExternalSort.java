@@ -194,7 +194,6 @@ public class ExternalSort extends UnaryOperator {
 
     public String mergeRunFiles(Relation relation, ArrayList<String> runFiles) throws java.io.IOException, StorageManagerException {
         String mergedFile;
-        mergedFile = FileUtil.createTempFileName();
 
         ArrayList<String> thisStage = runFiles;
         ArrayList<String> tempFiles = new ArrayList<String>();
