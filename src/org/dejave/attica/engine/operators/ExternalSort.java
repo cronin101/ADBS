@@ -20,8 +20,11 @@ import org.dejave.attica.storage.Tuple;
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
+import org.dejave.attica.storage.Sizes;
 
 import org.dejave.attica.storage.FileUtil;
+
+import java.lang.instrument.Instrumentation;
 
 /**
  * ExternalSort: Your implementation of sorting.
@@ -51,6 +54,8 @@ public class ExternalSort extends UnaryOperator {
 
     /** Reusable tuple list for returns. */
     private List<Tuple> returnList;
+
+    private static Instrumentation globalInstrumentation;
 
     
     /**
@@ -121,11 +126,17 @@ public class ExternalSort extends UnaryOperator {
             //
             ////////////////////////////////////////////
             
-            ////////////////////////////////////////////
-            //
-            // YOUR CODE GOES HERE
-            //
-            ////////////////////////////////////////////
+            // FIXME: Making the assumption that at least one tuple is in stream.
+            Tuple nextTuple = getInputOperator().getNext();
+
+            // Find out how many Tuples we can initialize our heap with.
+            int tupleSize = (int) globalInstrumentation.getObjectSize(nextTuple);
+            Sizes sizeConstants = new Sizes();
+            // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for RelationalIO output
+            int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
+            int initialHeapTupCount = heapBudget / tupleSize;
+
+
             
             ////////////////////////////////////////////
             //
