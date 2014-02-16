@@ -17,11 +17,15 @@ import java.util.ArrayList;
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
 import org.dejave.attica.storage.TupleComparator;
+import org.dejave.attica.storage.TupleIOManager;
 
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
 import org.dejave.attica.storage.Sizes;
+
+import org.dejave.attica.storage.PageIdentifier;
+import org.dejave.attica.storage.Page;
 
 import org.dejave.attica.storage.FileUtil;
 
@@ -133,6 +137,7 @@ public class ExternalSort extends UnaryOperator {
             //
             ////////////////////////////////////////////
             
+            Relation relation = getInputOperator().getOutputRelation();
             // FIXME: Making the assumption that at least one tuple is in stream.
             Tuple nextTuple = getInputOperator().getNext();
 
@@ -143,16 +148,66 @@ public class ExternalSort extends UnaryOperator {
             int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
             int initialHeapTupCount = heapBudget / tupleSize;
 
-            // Initialize the Priority Queue
+            // Initialize the Priority Queue(s)
             // The lack of O(n) #heapify with a custom comparator is incredibly upsetting.
-            PriorityQueue thisQ = new PriorityQueue(initialHeapTupCount, comparator);
+            PriorityQueue<Tuple> thisQ = new PriorityQueue<Tuple>(initialHeapTupCount, comparator);
             for (int added = 0; added < initialHeapTupCount; added++) {
               if (nextTuple instanceof EndOfStreamTuple) break;
               thisQ.add(nextTuple);
               nextTuple = getInputOperator().getNext();
             }
+            PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(0, comparator);
 
-            PriorityQueue nextQ = new PriorityQueue(0, comparator);
+            // Initialize the first Run
+            String currentRunFilename = FileUtil.createTempFileName();
+            runFiles.add(currentRunFilename);
+            int runPageOffset = 0;
+            PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+            Page currentRunPage = new Page(relation, currentRunPageID);
+            RelationIOManager currentRunManager = new RelationIOManager(
+              sm,
+              relation,
+              currentRunFilename
+            );
+
+
+            while (thisQ.peek() != null) {
+              // Write the lowest key from current Queue into current Run.
+              Tuple lowest = thisQ.poll();
+              // If page is full, write to disk and start new page.
+              if (!currentRunPage.hasRoom(lowest)) {
+                sm.writePage(currentRunPage);
+                runPageOffset++;
+                currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+                currentRunPage = new Page(relation, currentRunPageID);
+              }
+              currentRunPage.addTuple(lowest);
+
+              // Insert next input tuple into correct Priority Queue.
+              if (! (nextTuple instanceof EndOfStreamTuple)) {
+                if (comparator.compare(nextTuple, lowest) >= 0) {
+                  thisQ.add(nextTuple);
+                } else {
+                  nextQ.add(nextTuple);
+                }
+                nextTuple = getInputOperator().getNext();
+              }
+
+              // If current Queue exhausted, swap Queues and start new Run if !finished.
+              if (thisQ.peek() == null) {
+                PriorityQueue<Tuple> temp = thisQ;
+                thisQ = nextQ;
+                nextQ = temp;
+
+                if (thisQ.peek() != null) {
+                  currentRunFilename = FileUtil.createTempFileName();
+                  runFiles.add(currentRunFilename);
+                  runPageOffset = 0;
+                  currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+                  currentRunPage = new Page(relation, currentRunPageID);
+                }
+              }
+            }
 
 
             
