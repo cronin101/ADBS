@@ -64,8 +64,6 @@ public class ExternalSort extends UnaryOperator {
 
     private TupleComparator comparator;
 
-    private List<String> runFiles;
-
     
     /**
      * Constructs a new external sort operator.
@@ -119,7 +117,85 @@ public class ExternalSort extends UnaryOperator {
         outputFile = FileUtil.createTempFileName();
     } // initTempFiles()
 
-    
+    private ArrayList<String> doReplacementSelection(Relation relation) throws StorageManagerException, EngineException {
+      ArrayList<String> runFiles = new ArrayList<String>();
+
+      // FIXME: Making the assumption that at least one tuple is in stream.
+      Tuple nextTuple = getInputOperator().getNext();
+
+      // Find out how many Tuples we can initialize our heap with.
+      int tupleSize = (int) globalInstrumentation.getObjectSize(nextTuple);
+      Sizes sizeConstants = new Sizes();
+      // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for RelationalIO output
+      int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
+      int initialHeapTupCount = heapBudget / tupleSize;
+
+      // Initialize the Priority Queue(s)
+      // The lack of O(n) #heapify with a custom comparator is incredibly upsetting.
+      PriorityQueue<Tuple> thisQ = new PriorityQueue<Tuple>(initialHeapTupCount, comparator);
+      for (int added = 0; added < initialHeapTupCount; added++) {
+        if (nextTuple instanceof EndOfStreamTuple) break;
+        thisQ.add(nextTuple);
+        nextTuple = getInputOperator().getNext();
+      }
+      PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(0, comparator);
+
+      // Initialize the first Run
+      String currentRunFilename = FileUtil.createTempFileName();
+      runFiles.add(currentRunFilename);
+      int runPageOffset = 0;
+      PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+      Page currentRunPage = new Page(relation, currentRunPageID);
+      RelationIOManager currentRunManager = new RelationIOManager(
+        sm,
+        relation,
+        currentRunFilename
+      );
+
+
+      while (thisQ.peek() != null) {
+        // Write the lowest key from current Queue into current Run.
+        Tuple lowest = thisQ.poll();
+        // If page is full, write to disk and start new page.
+        if (!currentRunPage.hasRoom(lowest)) {
+          sm.writePage(currentRunPage);
+          runPageOffset++;
+          currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+          currentRunPage = new Page(relation, currentRunPageID);
+        }
+        currentRunPage.addTuple(lowest);
+
+        // Insert next input tuple into correct Priority Queue.
+        if (! (nextTuple instanceof EndOfStreamTuple)) {
+          if (comparator.compare(nextTuple, lowest) >= 0) {
+            thisQ.add(nextTuple);
+          } else {
+            nextQ.add(nextTuple);
+          }
+          nextTuple = getInputOperator().getNext();
+        }
+
+        // If current Queue exhausted, swap Queues and start new Run if !finished.
+        if (thisQ.peek() == null) {
+          PriorityQueue<Tuple> temp = thisQ;
+          thisQ = nextQ;
+          nextQ = temp;
+
+          if (thisQ.peek() != null) {
+            currentRunFilename = FileUtil.createTempFileName();
+            runFiles.add(currentRunFilename);
+            runPageOffset = 0;
+            currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+            currentRunPage = new Page(relation, currentRunPageID);
+          }
+        }
+      }
+      // Write final page.
+      sm.writePage(currentRunPage);
+
+      return runFiles;
+    }
+
     /**
      * Sets up this external sort operator.
      * 
@@ -129,84 +205,7 @@ public class ExternalSort extends UnaryOperator {
     public void setup() throws EngineException {
         returnList = new ArrayList<Tuple>();
         try {
-            ////////////////////////////////////////////
-            //
-            // this is a blocking operator -- store the input
-            // in a temporary file and sort the file
-            //
-            ////////////////////////////////////////////
-            
-            Relation relation = getInputOperator().getOutputRelation();
-            // FIXME: Making the assumption that at least one tuple is in stream.
-            Tuple nextTuple = getInputOperator().getNext();
-
-            // Find out how many Tuples we can initialize our heap with.
-            int tupleSize = (int) globalInstrumentation.getObjectSize(nextTuple);
-            Sizes sizeConstants = new Sizes();
-            // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for RelationalIO output
-            int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
-            int initialHeapTupCount = heapBudget / tupleSize;
-
-            // Initialize the Priority Queue(s)
-            // The lack of O(n) #heapify with a custom comparator is incredibly upsetting.
-            PriorityQueue<Tuple> thisQ = new PriorityQueue<Tuple>(initialHeapTupCount, comparator);
-            for (int added = 0; added < initialHeapTupCount; added++) {
-              if (nextTuple instanceof EndOfStreamTuple) break;
-              thisQ.add(nextTuple);
-              nextTuple = getInputOperator().getNext();
-            }
-            PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(0, comparator);
-
-            // Initialize the first Run
-            String currentRunFilename = FileUtil.createTempFileName();
-            runFiles.add(currentRunFilename);
-            int runPageOffset = 0;
-            PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-            Page currentRunPage = new Page(relation, currentRunPageID);
-            RelationIOManager currentRunManager = new RelationIOManager(
-              sm,
-              relation,
-              currentRunFilename
-            );
-
-
-            while (thisQ.peek() != null) {
-              // Write the lowest key from current Queue into current Run.
-              Tuple lowest = thisQ.poll();
-              // If page is full, write to disk and start new page.
-              if (!currentRunPage.hasRoom(lowest)) {
-                sm.writePage(currentRunPage);
-                runPageOffset++;
-                currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-                currentRunPage = new Page(relation, currentRunPageID);
-              }
-              currentRunPage.addTuple(lowest);
-
-              // Insert next input tuple into correct Priority Queue.
-              if (! (nextTuple instanceof EndOfStreamTuple)) {
-                if (comparator.compare(nextTuple, lowest) >= 0) {
-                  thisQ.add(nextTuple);
-                } else {
-                  nextQ.add(nextTuple);
-                }
-                nextTuple = getInputOperator().getNext();
-              }
-
-              // If current Queue exhausted, swap Queues and start new Run if !finished.
-              if (thisQ.peek() == null) {
-                PriorityQueue<Tuple> temp = thisQ;
-                thisQ = nextQ;
-                nextQ = temp;
-
-                if (thisQ.peek() != null) {
-                  currentRunFilename = FileUtil.createTempFileName();
-                  runFiles.add(currentRunFilename);
-                  runPageOffset = 0;
-                  currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-                  currentRunPage = new Page(relation, currentRunPageID);
-                }
-              }
-            }
+              ArrayList<String> runFiles = doReplacementSelection(getInputOperator().getOutputRelation());
 
 
             
