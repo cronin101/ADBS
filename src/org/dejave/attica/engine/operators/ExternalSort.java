@@ -264,6 +264,8 @@ public class ExternalSort extends UnaryOperator {
       mergedFile = nextStage.get(0);
 
       //Clean-up all files apart from returned, merged file
+      for (String file : runFiles) sm.deleteFile(file);
+      for (String file : tempFiles) if (file != mergedFile) sm.deleteFile(file);
 
       return mergedFile;
     }
