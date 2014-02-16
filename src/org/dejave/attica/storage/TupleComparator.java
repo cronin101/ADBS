@@ -9,19 +9,18 @@ import java.util.Comparator;
  * of tuples by the 'slots' array handed to ExternalSort */
 
 public class TupleComparator implements Comparator<Tuple> {
-  private int [] slots;
+    private int [] slots;
 
-  public TupleComparator(int [] slots) {
-    this.slots = slots;
-  }
-
-  @Override
-  public int compare(Tuple a, Tuple b) {
-    for (int slot : slots ) {
-      int ordering = a.getValue(slot).compareTo(b.getValue(slot));
-      if (ordering != 0) return ordering;
+    public TupleComparator(int [] slots) {
+        this.slots = slots;
     }
-    return 0;
-  }
 
+    @Override
+    public int compare(Tuple a, Tuple b) {
+        for (int slot : slots ) {
+            int ordering = a.getValue(slot).compareTo(b.getValue(slot));
+            if (ordering != 0) return ordering;
+        }
+        return 0;
+    }
 }

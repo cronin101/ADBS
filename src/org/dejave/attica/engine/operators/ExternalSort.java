@@ -118,163 +118,179 @@ public class ExternalSort extends UnaryOperator {
         outputFile = FileUtil.createTempFileName();
     } // initTempFiles()
 
-    private ArrayList<String> doReplacementSelection(Relation relation) throws StorageManagerException, EngineException {
-      ArrayList<String> runFiles = new ArrayList<String>();
+    private ArrayList<String> generateRunsViaReplacementSelection(Relation relation) throws StorageManagerException, EngineException {
+        ArrayList<String> runFiles = new ArrayList<String>();
 
-      Tuple nextTuple = getInputOperator().getNext();
+        Tuple nextTuple = getInputOperator().getNext();
 
-      // Find out how many Tuples we can initialize our heap with.
-      int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
-      // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
-      int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
-      int initialHeapTupCount = heapBudget / tupleSize;
+        // Find out how many Tuples we can initialize our heap with.
+        int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
+        // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
+        int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
+        int initialHeapTupCount = heapBudget / tupleSize;
 
-      // Initialize the Priority Queue(s)
-      // The lack of O(n) #heapify with a custom comparator is incredibly upsetting.
-      PriorityQueue<Tuple> thisQ = new PriorityQueue<Tuple>(initialHeapTupCount, comparator);
-      for (int added = 0; added < initialHeapTupCount; added++) {
+        // Initialize the Priority Queue(s)
+        // The lack of O(n) #heapify with a custom comparator in Java is incredibly upsetting.
+        PriorityQueue<Tuple> thisQ = new PriorityQueue<Tuple>(initialHeapTupCount, comparator);
+        for (int added = 0; added < initialHeapTupCount; added++) {
         if (nextTuple instanceof EndOfStreamTuple) break;
-        thisQ.add(nextTuple);
-        nextTuple = getInputOperator().getNext();
-      }
-      PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
-
-      // Initialize the first Run
-      String currentRunFilename = FileUtil.createTempFileName();
-      runFiles.add(currentRunFilename);
-      int runPageOffset = 0;
-      PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-      Page currentRunPage = new Page(relation, currentRunPageID);
-
-      while (thisQ.peek() != null) {
-        // Write the lowest key from current Queue into current Run.
-        Tuple lowest = thisQ.poll();
-        // If page is full, write to disk and start new page.
-        if (!currentRunPage.hasRoom(lowest)) {
-          sm.writePage(currentRunPage);
-          runPageOffset++;
-          currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-          currentRunPage = new Page(relation, currentRunPageID);
-        }
-        currentRunPage.addTuple(lowest);
-
-        // Insert next input tuple into correct Priority Queue.
-        if (! (nextTuple instanceof EndOfStreamTuple)) {
-          if (comparator.compare(nextTuple, lowest) >= 0) {
             thisQ.add(nextTuple);
-          } else {
-            nextQ.add(nextTuple);
-          }
-          nextTuple = getInputOperator().getNext();
+            nextTuple = getInputOperator().getNext();
         }
+        //Empty Priority Queue to hold the tuples spilling into next Run
+        PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
 
-        // If current Queue exhausted, swap Queues and start new Run if !finished.
-        if (thisQ.peek() == null) {
-          PriorityQueue<Tuple> temp = thisQ;
-          thisQ = nextQ;
-          nextQ = temp;
+        // Initialize the first Run
+        String currentRunFilename = FileUtil.createTempFileName();
+        runFiles.add(currentRunFilename);
+        int runPageOffset = 0;
+        PageIdentifier currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+        Page currentRunPage = new Page(relation, currentRunPageID);
 
-          if (thisQ.peek() != null) {
-            currentRunFilename = FileUtil.createTempFileName();
-            runFiles.add(currentRunFilename);
-            runPageOffset = 0;
-            currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
-            currentRunPage = new Page(relation, currentRunPageID);
-          }
+        // Main Replacement-Selection loop
+        while (thisQ.peek() != null) {
+            // Write the lowest key from current Queue into current Run.
+            Tuple lowest = thisQ.poll();
+            // If page is full, write to disk and start new page.
+            if (!currentRunPage.hasRoom(lowest)) {
+                sm.writePage(currentRunPage);
+                runPageOffset++;
+                currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+                currentRunPage = new Page(relation, currentRunPageID);
+            }
+            currentRunPage.addTuple(lowest);
+
+            // Insert next input tuple into correct Priority Queue.
+            if (!(nextTuple instanceof EndOfStreamTuple)) {
+                if (comparator.compare(nextTuple, lowest) >= 0) {
+                    thisQ.add(nextTuple);
+                } else {
+                    nextQ.add(nextTuple);
+                }
+                nextTuple = getInputOperator().getNext();
+            }
+
+            // If current Queue exhausted, swap Queues.
+            if (thisQ.peek() == null) {
+                PriorityQueue<Tuple> temp = thisQ;
+                thisQ = nextQ;
+                nextQ = temp;
+
+              // Start new Run for next iteration if we have not finished.
+                if (thisQ.peek() != null) {
+                    currentRunFilename = FileUtil.createTempFileName();
+                    runFiles.add(currentRunFilename);
+                    runPageOffset = 0;
+                    currentRunPageID = new PageIdentifier(currentRunFilename, runPageOffset);
+                    currentRunPage = new Page(relation, currentRunPageID);
+                }
+            }
         }
-      }
-      // Write final page.
-      sm.writePage(currentRunPage);
+        // Write final page.
+        sm.writePage(currentRunPage);
 
-      return runFiles;
+        return runFiles;
     }
 
     public String mergeRunFiles(Relation relation, ArrayList<String> runFiles) throws java.io.IOException, StorageManagerException {
-      String mergedFile;
-      mergedFile = FileUtil.createTempFileName();
+        String mergedFile;
+        mergedFile = FileUtil.createTempFileName();
 
-      ArrayList<String> thisStage = runFiles;
-      ArrayList<String> tempFiles = new ArrayList<String>();
-      ArrayList<String> nextStage = new ArrayList<String>();
+        ArrayList<String> thisStage = runFiles;
+        ArrayList<String> tempFiles = new ArrayList<String>();
+        ArrayList<String> nextStage = new ArrayList<String>();
 
-      while (!thisStage.isEmpty()) {
 
-        // Cannot merge a single Run
-        if (thisStage.size() == 1) {
-          nextStage.add(thisStage.get(0));
+        // Repeatedly perform (B-1)-way Linear Merge in stages until a single merged file remains.
+        while (!thisStage.isEmpty()) {
 
-          if (nextStage.size() > 1 ) {
-            thisStage = nextStage;
-            nextStage = new ArrayList<String>();
-            continue;
-          } else {
-            break;
-          }
+            // Cannot merge a single Run.
+            if (thisStage.size() == 1) {
+                // Overlap the remaining Run into the next stage.
+                nextStage.add(thisStage.get(0));
+                if (nextStage.size() > 1 ) {
+                    thisStage = nextStage;
+                    nextStage = new ArrayList<String>();
+                    continue;
 
-        }
+                // Exit Loop if there is no 'next'
+                } else {
+                    break;
+                }
+            }
 
-        // Take up to B-1 runFiles for k-way merge
-        int sliceIndex = Math.min(buffers - 2, thisStage.size());
-        List<String> runSlice = thisStage.subList(0, sliceIndex);
+            // Take up to B-1 run Files for simultaneous merge
+            int sliceIndex = Math.min(buffers - 2, thisStage.size());
+            List<String> runSlice = thisStage.subList(0, sliceIndex);
 
-        String mergeStepFile = FileUtil.createTempFileName();
-        tempFiles.add(mergeStepFile);
-        nextStage.add(mergeStepFile);
-        int pageOffset = 0;
-        PageIdentifier mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
-        Page mergedPage = new Page(relation, mergedPageID);
+            // Output file for merge step
+            String mergeStepFile = FileUtil.createTempFileName();
+            tempFiles.add(mergeStepFile);
+            nextStage.add(mergeStepFile);
+            int pageOffset = 0;
+            PageIdentifier mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
+            Page mergedPage = new Page(relation, mergedPageID);
 
-        HashMap<Tuple, Iterator<Tuple>> streamMap = new HashMap<Tuple, Iterator<Tuple>>();
-        PriorityQueue<Tuple> frontier = new PriorityQueue<Tuple>(sliceIndex + 1, comparator);
-        for (String fileName : runSlice) {
-          Iterator<Tuple> stream = new RelationIOManager(sm, relation, fileName).tuples().iterator();
-          if (stream.hasNext()){
-            Tuple head = stream.next();
-            streamMap.put(head, stream);
-            frontier.add(head);
-          }
-        }
-        runSlice.clear();
+            // Streams and Priority Queue for efficient Merge
+            HashMap<Tuple, Iterator<Tuple>> streamMap = new HashMap<Tuple, Iterator<Tuple>>();
+            PriorityQueue<Tuple> frontier = new PriorityQueue<Tuple>(sliceIndex + 1, comparator);
 
-        while (frontier.peek() != null) {
-          // Remove lowest from PQ
-          Tuple lowest = frontier.poll();
+            // The Frontier is initially the head of each Stream
+            for (String fileName : runSlice) {
+                Iterator<Tuple> stream = new RelationIOManager(sm, relation, fileName).tuples().iterator();
+                // No need to include exhausted streams
+                if (stream.hasNext()){
+                    Tuple head = stream.next();
+                    streamMap.put(head, stream);
+                    frontier.add(head);
+                }
+            }
 
-          // Add to step Page
-          if (!mergedPage.hasRoom(lowest)) {
+            // Linear-merge-of-streams loop
+            while (frontier.peek() != null) {
+                // Remove lowest from PQ
+                Tuple lowest = frontier.poll();
+
+                // Add to output file's Page, creating a new page if the current one is full
+                if (!mergedPage.hasRoom(lowest)) {
+                    sm.writePage(mergedPage);
+                    pageOffset++;
+                    mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
+                    mergedPage = new Page(relation, mergedPageID);
+                }
+                mergedPage.addTuple(lowest);
+
+                // Update frontier by incrementing the stream that provided the written tuple
+                Iterator<Tuple> incrementedStream = streamMap.remove(lowest);
+                // No need to include exhausted streams
+                if (incrementedStream.hasNext()) {
+                    Tuple head = incrementedStream.next();
+                    streamMap.put(head, incrementedStream);
+                    frontier.add(head);
+                }
+            }
+            // Write the remainder of the last Run
             sm.writePage(mergedPage);
-            pageOffset++;
-            mergedPageID = new PageIdentifier(mergeStepFile, pageOffset);
-            mergedPage = new Page(relation, mergedPageID);
-          }
-          mergedPage.addTuple(lowest);
 
-          // Update frontier
-          Iterator<Tuple> incrementedStream = streamMap.remove(lowest);
-          if (incrementedStream.hasNext()) {
-            Tuple head = incrementedStream.next();
-            streamMap.put(head, incrementedStream);
-            frontier.add(head);
-          }
+            // Remove the processed slice from consideration of the next iteration.
+            runSlice.clear();
+
+            if (thisStage.isEmpty()) {
+                // Another pass is needed if nextStage is not completely merged.
+                if (nextStage.size() > 1) {
+                    thisStage = nextStage;
+                    nextStage = new ArrayList<String>();
+                }
+            }
         }
-        sm.writePage(mergedPage);
 
-        if (thisStage.isEmpty()) {
-          // Another pass is needed if nextStage is not completely merged.
-          if (nextStage.size() > 1) {
-            thisStage = nextStage;
-            nextStage = new ArrayList<String>();
-          }
-        }
-      }
+        mergedFile = nextStage.get(0);
 
-      mergedFile = nextStage.get(0);
+        //  Clean-up all files apart from returned, merged file
+        for (String file : runFiles) if (file != mergedFile) sm.deleteFile(file);
+        for (String file : tempFiles) if (file != mergedFile) sm.deleteFile(file);
 
-      //Clean-up all files apart from returned, merged file
-      for (String file : runFiles) if (file != mergedFile) sm.deleteFile(file);
-      for (String file : tempFiles) if (file != mergedFile) sm.deleteFile(file);
-
-      return mergedFile;
+        return mergedFile;
     }
 
     /**
@@ -287,7 +303,7 @@ public class ExternalSort extends UnaryOperator {
         returnList = new ArrayList<Tuple>();
         try {
             Relation relation = getInputOperator().getOutputRelation();
-            ArrayList<String> runFiles = doReplacementSelection(relation);
+            ArrayList<String> runFiles = generateRunsViaReplacementSelection(relation);
             outputFile = mergeRunFiles(relation, runFiles);
 
             outputMan = new RelationIOManager(sm, getOutputRelation(),
