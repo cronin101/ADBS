@@ -16,6 +16,7 @@ import java.util.ArrayList;
 
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
+import org.dejave.attica.storage.TupleIOManager;
 import org.dejave.attica.storage.TupleComparator;
 
 import org.dejave.attica.storage.RelationIOManager;
@@ -125,10 +126,9 @@ public class ExternalSort extends UnaryOperator {
       Tuple nextTuple = getInputOperator().getNext();
 
       // Find out how many Tuples we can initialize our heap with.
-      int tupleSize = (int) globalInstrumentation.getObjectSize(nextTuple);
-      Sizes sizeConstants = new Sizes();
+      int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
       // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
-      int heapBudget = (buffers - 2) * sizeConstants.PAGE_SIZE;
+      int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
       int initialHeapTupCount = heapBudget / tupleSize;
 
       // Initialize the Priority Queue(s)
@@ -139,7 +139,7 @@ public class ExternalSort extends UnaryOperator {
         thisQ.add(nextTuple);
         nextTuple = getInputOperator().getNext();
       }
-      PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(0, comparator);
+      PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
 
       // Initialize the first Run
       String currentRunFilename = FileUtil.createTempFileName();
@@ -200,8 +200,23 @@ public class ExternalSort extends UnaryOperator {
       ArrayList<String> nextStage = new ArrayList<String>();
 
       while (!thisStage.isEmpty()) {
+
+        // Cannot merge a single Run
+        if (thisStage.size() == 1) {
+          nextStage.add(thisStage.get(0));
+
+          if (nextStage.size() > 1 ) {
+            thisStage = nextStage;
+            nextStage = new ArrayList<String>();
+            continue;
+          } else {
+            break;
+          }
+
+        }
+
         // Take up to B-1 runFiles for k-way merge
-        int sliceIndex = Math.min(buffers - 2, thisStage.size() - 1);
+        int sliceIndex = Math.min(buffers - 2, thisStage.size());
         List<String> runSlice = thisStage.subList(0, sliceIndex);
 
         String mergeStepFile = FileUtil.createTempFileName();
@@ -258,7 +273,7 @@ public class ExternalSort extends UnaryOperator {
       mergedFile = nextStage.get(0);
 
       //Clean-up all files apart from returned, merged file
-      for (String file : runFiles) sm.deleteFile(file);
+      for (String file : runFiles) if (file != mergedFile) sm.deleteFile(file);
       for (String file : tempFiles) if (file != mergedFile) sm.deleteFile(file);
 
       return mergedFile;
@@ -273,25 +288,17 @@ public class ExternalSort extends UnaryOperator {
     public void setup() throws EngineException {
         returnList = new ArrayList<Tuple>();
         try {
-              Relation relation = getInputOperator().getOutputRelation();
-              ArrayList<String> runFiles = doReplacementSelection(relation);
-              String mergedFile = mergeRunFiles(relation, runFiles);
+            Relation relation = getInputOperator().getOutputRelation();
+            ArrayList<String> runFiles = doReplacementSelection(relation);
+            outputFile = mergeRunFiles(relation, runFiles);
 
-
-            
-            ////////////////////////////////////////////
-            //
-            // the output should reside in the output file
-            //
-            ////////////////////////////////////////////
-            
             outputMan = new RelationIOManager(sm, getOutputRelation(),
                                               outputFile);
             outputTuples = outputMan.tuples().iterator();
         }
         catch (Exception sme) {
             throw new EngineException("Could not store and sort"
-                                      + "intermediate files.", sme);
+                                      + " intermediate files.", sme);
         }
     } // setup()
 
