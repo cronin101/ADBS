@@ -115,13 +115,13 @@ public class ExternalSort extends UnaryOperator {
     } // initTempFiles()
 
     private ArrayList<String> generateRunsViaReplacementSelection(Relation relation) throws StorageManagerException, EngineException {
+        // Keep track of Run files created.
         ArrayList<String> runFiles = new ArrayList<String>();
 
-        Tuple nextTuple = getInputOperator().getNext();
-
         // Find out how many Tuples we can initialize our heap with.
+        Tuple nextTuple = getInputOperator().getNext();
         int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
-        // Reserved: 1 Buffer for Input, 1 buffer for Output
+        // Reserved: 1 Buffer for Input, 1 buffer for Output.
         int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
         int initialHeapTupCount = heapBudget / tupleSize;
 
@@ -133,7 +133,6 @@ public class ExternalSort extends UnaryOperator {
             thisQ.add(nextTuple);
             nextTuple = getInputOperator().getNext();
         }
-
         //Empty Priority Queue to hold the tuples spilling into next Run
         PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
 
@@ -151,11 +150,7 @@ public class ExternalSort extends UnaryOperator {
 
             // Insert next input tuple into correct Priority Queue.
             if (!(nextTuple instanceof EndOfStreamTuple)) {
-                if (comparator.compare(nextTuple, lowest) >= 0) {
-                    thisQ.add(nextTuple);
-                } else {
-                    nextQ.add(nextTuple);
-                }
+                (comparator.compare(nextTuple, lowest) >= 0 ? thisQ : nextQ).add(nextTuple);
                 nextTuple = getInputOperator().getNext();
             }
 
@@ -188,7 +183,7 @@ public class ExternalSort extends UnaryOperator {
         // Repeatedly perform (B-1)-way Linear Merge in stages until a single merged file remains.
         while (!thisStage.isEmpty()) {
             // Take up to B-1 run Files for simultaneous merge
-            int sliceIndex = Math.min(buffers - 2, thisStage.size());
+            int sliceIndex = Math.min(buffers - 1, thisStage.size());
             List<String> runSlice = thisStage.subList(0, sliceIndex);
 
             // Output file for merge step
@@ -210,8 +205,7 @@ public class ExternalSort extends UnaryOperator {
                 // No need to include exhausted streams
                 if (stream.hasNext()){
                     Tuple head = stream.next();
-                    int tupleHash = head.hashCode();
-                    streamMap.put(tupleHash, stream);
+                    streamMap.put(head.hashCode(), stream);
                     frontier.add(head);
                 }
             }
@@ -241,18 +235,15 @@ public class ExternalSort extends UnaryOperator {
             if (thisStage.size() == 1) {
                 // Overlap the remaining Run into the next stage.
                 nextStage.add(thisStage.get(0));
-                if (nextStage.size() > 1 ) {
-                    thisStage = nextStage;
-                    nextStage = new ArrayList<String>();
-                    continue;
-
-                // Exit Loop if there is no 'next'
-                } else {
-                    thisStage = new ArrayList<String>();
+                thisStage = new ArrayList<String>();
+                //
+                // Exit Loop if 'next' is fully merged.
+                if (nextStage.size() == 1 ) {
                     break;
                 }
             }
 
+            // This stage is now over.
             if (thisStage.isEmpty()) {
                 // Another pass is needed if nextStage is not completely merged.
                 if (nextStage.size() > 1) {
@@ -265,7 +256,6 @@ public class ExternalSort extends UnaryOperator {
         mergedFile = nextStage.get(0);
 
         //  Clean-up all files apart from returned, merged file
-        tempFiles.addAll(runFiles);
         for (String file : tempFiles) {
             if (file != mergedFile) {
                 sm.deleteFile(file);
