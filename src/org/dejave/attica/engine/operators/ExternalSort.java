@@ -13,6 +13,8 @@ package org.dejave.attica.engine.operators;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.PriorityQueue;
+import java.util.HashMap;
 
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
@@ -24,15 +26,8 @@ import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
 import org.dejave.attica.storage.Sizes;
 
-import org.dejave.attica.storage.PageIdentifier;
-import org.dejave.attica.storage.Page;
-
 import org.dejave.attica.storage.FileUtil;
 
-import java.lang.instrument.Instrumentation;
-import java.util.PriorityQueue;
-import java.util.HashMap;
-import java.util.Iterator;
 
 /**
  * ExternalSort: Your implementation of sorting.
@@ -125,7 +120,6 @@ public class ExternalSort extends UnaryOperator {
 
         // Find out how many Tuples we can initialize our heap with.
         int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
-
         // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
         int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
         int initialHeapTupCount = heapBudget / tupleSize;
@@ -138,6 +132,7 @@ public class ExternalSort extends UnaryOperator {
             thisQ.add(nextTuple);
             nextTuple = getInputOperator().getNext();
         }
+
         //Empty Priority Queue to hold the tuples spilling into next Run
         PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
 
@@ -188,7 +183,6 @@ public class ExternalSort extends UnaryOperator {
         ArrayList<String> thisStage = runFiles;
         ArrayList<String> tempFiles = new ArrayList<String>();
         ArrayList<String> nextStage = new ArrayList<String>();
-
 
         // Repeatedly perform (B-1)-way Linear Merge in stages until a single merged file remains.
         while (!thisStage.isEmpty()) {
