@@ -13,6 +13,8 @@ package org.dejave.attica.engine.operators;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.PriorityQueue;
+import java.util.HashMap;
 
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
@@ -24,15 +26,8 @@ import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
 import org.dejave.attica.storage.Sizes;
 
-import org.dejave.attica.storage.PageIdentifier;
-import org.dejave.attica.storage.Page;
-
 import org.dejave.attica.storage.FileUtil;
 
-import java.lang.instrument.Instrumentation;
-import java.util.PriorityQueue;
-import java.util.HashMap;
-import java.util.Iterator;
 
 /**
  * ExternalSort: Your implementation of sorting.
