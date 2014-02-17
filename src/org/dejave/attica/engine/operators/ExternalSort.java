@@ -58,6 +58,7 @@ public class ExternalSort extends UnaryOperator {
     /** Reusable tuple list for returns. */
     private List<Tuple> returnList;
 
+    /** Comparator for PriorityQueue, using slots. */
     private TupleComparator comparator;
 
     
@@ -120,7 +121,7 @@ public class ExternalSort extends UnaryOperator {
 
         // Find out how many Tuples we can initialize our heap with.
         int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
-        // Reserved: 1 Buffer for RelationalIO Input, 1 buffer for Page output
+        // Reserved: 1 Buffer for Input, 1 buffer for Output
         int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
         int initialHeapTupCount = heapBudget / tupleSize;
 
