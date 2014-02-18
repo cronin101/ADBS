@@ -119,7 +119,8 @@ public class ExternalSort extends UnaryOperator {
         ArrayList<String> runFiles = new ArrayList<String>();
 
         // Find out how many Tuples we can initialize our heap with.
-        Tuple nextTuple = getInputOperator().getNext();
+        Tuple nextTuple = null;
+        while (nextTuple == null) nextTuple = getInputOperator().getNext();
         int tupleSize = TupleIOManager.byteSize(relation, nextTuple);
         // Reserved: 1 Buffer for Input, 1 buffer for Output.
         int heapBudget = (buffers - 2) * Sizes.PAGE_SIZE;
@@ -131,7 +132,8 @@ public class ExternalSort extends UnaryOperator {
         for (int added = 0; added < initialHeapTupCount; added++) {
             if (nextTuple instanceof EndOfStreamTuple) break;
             thisQ.add(nextTuple);
-            nextTuple = getInputOperator().getNext();
+            nextTuple = null;
+            while (nextTuple == null) nextTuple = getInputOperator().getNext();
         }
         //Empty Priority Queue to hold the tuples spilling into next Run
         PriorityQueue<Tuple> nextQ = new PriorityQueue<Tuple>(1, comparator);
@@ -151,7 +153,8 @@ public class ExternalSort extends UnaryOperator {
             // Insert next input tuple into correct Priority Queue.
             if (!(nextTuple instanceof EndOfStreamTuple)) {
                 (comparator.compare(nextTuple, lowest) >= 0 ? thisQ : nextQ).add(nextTuple);
-                nextTuple = getInputOperator().getNext();
+                nextTuple = null;
+                while (nextTuple == null) nextTuple = getInputOperator().getNext();
             }
 
             // If current Queue exhausted, swap Queues.
