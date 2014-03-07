@@ -110,7 +110,76 @@ public class MergeJoin extends NestedLoopsJoin {
         outputFile = FileUtil.createTempFileName();
     } // initTempFiles()
 
-    
+    void doMergeJoin() throws IOException, StorageManagerException, EngineException {
+        // Initialize both 'pointers' as the beginning of streams
+        Tuple lTuple = null;
+        while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+        Tuple rTuple = null;
+        while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+
+        // If either Operator is empty, there will be an empty join...
+        if ((lTuple instanceof EndOfStreamTuple) || (rTuple instanceof EndOfStreamTuple)) {
+            return;
+        }
+
+        // ...Otherwise, the join algorithm proceeds.
+        while (true) {
+            // Advance LEFT relation whilst it trails RIGHT
+            while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) < 0) {
+                lTuple = null;
+                while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                if (lTuple instanceof EndOfStreamTuple) return;
+            }
+
+            // Advance Right relation whilst it trails LEFT
+            while (rTuple.getValue(rightSlot).compareTo(lTuple.getValue(leftSlot)) < 0) {
+                rTuple = null;
+                while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                if (rTuple instanceof EndOfStreamTuple) return;
+            }
+
+            // While slots are equal:
+            //      Increment RIGHT, emitting new tuples as join
+            //      but also storing the current 'group'
+            String groupFile = FileUtil.createTempFileName();
+            RelationIOManager groupManager = new RelationIOManager(
+                    getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
+
+            Tuple groupVal = lTuple;
+
+            while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
+                groupManager.insertTuple(rTuple);
+                outputMan.insertTuple(combineTuples(lTuple, rTuple));
+                rTuple = null;
+                while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                if (rTuple instanceof EndOfStreamTuple) break;
+            }
+
+            // Advance LEFT now that the group has been exhausted
+            lTuple = null;
+            while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+            if (lTuple instanceof EndOfStreamTuple) return;
+
+            // If LEFT has not changed despite the increment:
+            //      Produce another set of join tuples
+            //      for the previous group.
+            while (lTuple.getValue(leftSlot) == groupVal.getValue(leftSlot)) {
+                for (Tuple groupTuple : groupManager.tuples()) {
+                    outputMan.insertTuple(combineTuples(lTuple, groupTuple));
+                }
+
+                // Increment LEFT before checking again
+                lTuple = null;
+                while (lTuple == null) getInputOperator(LEFT).getNext();
+                if (lTuple instanceof EndOfStreamTuple) return;
+            }
+
+            // Group can be released
+            groupManager = null;
+            getStorageManager().deleteFile(groupFile);
+        }
+    }
+
     /**
      * Sets up this merge join operator.
      * 
@@ -121,27 +190,11 @@ public class MergeJoin extends NestedLoopsJoin {
     @Override
     protected void setup() throws EngineException {
         try {
-            System.out.println("done");
-            ////////////////////////////////////////////
-            //
-            // YOUR CODE GOES HERE
-            //
-            ////////////////////////////////////////////
-            
-            ////////////////////////////////////////////
-            //
-            // the output should reside in the output file
-            //
-            ////////////////////////////////////////////
+            outputMan = new RelationIOManager(getStorageManager(),
+                                              getOutputRelation(),
+                                              outputFile);
 
-            //
-            // you may need to uncomment the following lines if you
-            // have not already instantiated the manager -- it all
-            // depends on how you have implemented the operator
-            //
-            //outputMan = new RelationIOManager(getStorageManager(), 
-            //                                  getOutputRelation(),
-            //                                  outputFile);
+            doMergeJoin();
 
             // open the iterator over the output
             outputTuples = outputMan.tuples().iterator();
