@@ -108,6 +108,7 @@ public class MergeJoin extends NestedLoopsJoin {
         //
         ////////////////////////////////////////////
         outputFile = FileUtil.createTempFileName();
+        getStorageManager().createFile(outputFile);
     } // initTempFiles()
 
     void doMergeJoin() throws IOException, StorageManagerException, EngineException {
@@ -142,41 +143,43 @@ public class MergeJoin extends NestedLoopsJoin {
             //      Increment RIGHT, emitting new tuples as join
             //      but also storing the current 'group'
             String groupFile = FileUtil.createTempFileName();
-            RelationIOManager groupManager = new RelationIOManager(
-                    getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
+            try {
+                getStorageManager().createFile(groupFile);
+                RelationIOManager groupManager = new RelationIOManager(
+                        getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
 
-            Tuple groupVal = lTuple;
+                Tuple groupVal = lTuple;
 
-            while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
-                groupManager.insertTuple(rTuple);
-                outputMan.insertTuple(combineTuples(lTuple, rTuple));
-                rTuple = null;
-                while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
-                if (rTuple instanceof EndOfStreamTuple) break;
-            }
-
-            // Advance LEFT now that the group has been exhausted
-            lTuple = null;
-            while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
-            if (lTuple instanceof EndOfStreamTuple) return;
-
-            // If LEFT has not changed despite the increment:
-            //      Produce another set of join tuples
-            //      for the previous group.
-            while (lTuple.getValue(leftSlot) == groupVal.getValue(leftSlot)) {
-                for (Tuple groupTuple : groupManager.tuples()) {
-                    outputMan.insertTuple(combineTuples(lTuple, groupTuple));
+                while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
+                    groupManager.insertTuple(rTuple);
+                    outputMan.insertTuple(combineTuples(lTuple, rTuple));
+                    rTuple = null;
+                    while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                    if (rTuple instanceof EndOfStreamTuple) break;
                 }
 
-                // Increment LEFT before checking again
+                // Advance LEFT now that the group has been exhausted
                 lTuple = null;
-                while (lTuple == null) getInputOperator(LEFT).getNext();
+                while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
                 if (lTuple instanceof EndOfStreamTuple) return;
-            }
 
-            // Group can be released
-            groupManager = null;
-            getStorageManager().deleteFile(groupFile);
+                // If LEFT has not changed despite the increment:
+                //      Produce another set of join tuples
+                //      for the previous group.
+                while (lTuple.getValue(leftSlot) == groupVal.getValue(leftSlot)) {
+                    for (Tuple groupTuple : groupManager.tuples()) {
+                        outputMan.insertTuple(combineTuples(lTuple, groupTuple));
+                    }
+
+                    // Increment LEFT before checking again
+                    lTuple = null;
+                    while (lTuple == null) getInputOperator(LEFT).getNext();
+                    if (lTuple instanceof EndOfStreamTuple) return;
+                }
+            } finally {
+                // Group can be released
+                getStorageManager().deleteFile(groupFile);
+            }
         }
     }
 
@@ -219,7 +222,6 @@ public class MergeJoin extends NestedLoopsJoin {
      * @throws EngineException whenever the operator cannot clean up
      * after itself.
      */
-    /*
     @Override
     protected void cleanup() throws EngineException {
         try {
@@ -238,7 +240,6 @@ public class MergeJoin extends NestedLoopsJoin {
             throw ee;
         }
     } // cleanup()
-    */
 
     /**
      * Inner method to propagate a tuple.
