@@ -968,7 +968,6 @@ public class PlanBuilder {
                 //
                 //////////////////////////////////////////////
                 
-                /*
                   Relation leftRel = left.getOutputRelation();
                   Relation rightRel = right.getOutputRelation();
                   VariableVariableQualification vvq =
@@ -1017,10 +1016,6 @@ public class PlanBuilder {
                   pred = createJoinPredicate(newLeft, newRight, join);
                   return new MergeJoin(newLeft, newRight, sm, 
                                        leftSlots[0], rightSlots[0], pred);
-                  */
-
-                  pred = createJoinPredicate(left, right, join);
-                  return new NestedLoopsJoin(left, right, sm, pred);
             }
         }
         catch (EngineException ee) {
