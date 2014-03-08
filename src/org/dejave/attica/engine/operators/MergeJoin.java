@@ -117,69 +117,74 @@ public class MergeJoin extends NestedLoopsJoin {
         while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
         Tuple rTuple = null;
         while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
-
-        while (true) {
-            // If either Operator is empty, the join cannot continue...
-            if ((lTuple instanceof EndOfStreamTuple) || (rTuple instanceof EndOfStreamTuple)) {
-                return;
-            }
-            // ...Otherwise, the join algorithm proceeds.
-
-            // Advance LEFT relation whilst it trails RIGHT
-            while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) < 0) {
-                lTuple = null;
-                while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
-                if (lTuple instanceof EndOfStreamTuple) return;
-            }
-
-            // Advance Right relation whilst it trails LEFT
-            while (rTuple.getValue(rightSlot).compareTo(lTuple.getValue(leftSlot)) < 0) {
-                rTuple = null;
-                while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
-                if (rTuple instanceof EndOfStreamTuple) return;
-            }
-
-            // While slots are equal:
-            //      Increment RIGHT, emitting new tuples as join
-            //      but also storing the current 'group'
-            String groupFile = FileUtil.createTempFileName();
-            try {
-                getStorageManager().createFile(groupFile);
-                RelationIOManager groupManager = new RelationIOManager(
-                        getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
-
-                Tuple groupVal = lTuple;
-
-                while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
-                    groupManager.insertTuple(rTuple);
-                    outputMan.insertTuple(combineTuples(lTuple, rTuple));
-                    rTuple = null;
-                    while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
-                    if (rTuple instanceof EndOfStreamTuple) break;
+        try {
+            while (true) {
+                // If either Operator is empty, the join cannot continue...
+                if ((lTuple instanceof EndOfStreamTuple) || (rTuple instanceof EndOfStreamTuple)) {
+                    return;
                 }
+                // ...Otherwise, the join algorithm proceeds.
 
-                // Advance LEFT now that the group has been exhausted
-                lTuple = null;
-                while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
-                if (lTuple instanceof EndOfStreamTuple) return;
-
-                // If LEFT has not changed despite the increment:
-                //      Produce another set of join tuples
-                //      for the previous group.
-                while (lTuple.getValue(leftSlot).compareTo(groupVal.getValue(leftSlot)) == 0) {
-                    for (Tuple groupTuple : groupManager.tuples()) {
-                        outputMan.insertTuple(combineTuples(lTuple, groupTuple));
-                    }
-
-                    // Increment LEFT before checking again
+                // Advance LEFT relation whilst it trails RIGHT
+                while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) < 0) {
                     lTuple = null;
                     while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
                     if (lTuple instanceof EndOfStreamTuple) return;
                 }
-            } finally {
-                // Group can be released
-                getStorageManager().deleteFile(groupFile);
+
+                // Advance Right relation whilst it trails LEFT
+                while (rTuple.getValue(rightSlot).compareTo(lTuple.getValue(leftSlot)) < 0) {
+                    rTuple = null;
+                    while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                    if (rTuple instanceof EndOfStreamTuple) return;
+                }
+
+                // While slots are equal:
+                //      Increment RIGHT, emitting new tuples as join
+                //      but also storing the current 'group'
+                String groupFile = FileUtil.createTempFileName();
+                try {
+                    getStorageManager().createFile(groupFile);
+                    RelationIOManager groupManager = new RelationIOManager(
+                            getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
+
+                    Tuple groupVal = lTuple;
+
+                    while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
+                        groupManager.insertTuple(rTuple);
+                        outputMan.insertTuple(combineTuples(lTuple, rTuple));
+                        rTuple = null;
+                        while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                        if (rTuple instanceof EndOfStreamTuple) break;
+                    }
+
+                    // Advance LEFT now that the group has been exhausted
+                    lTuple = null;
+                    while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                    if (lTuple instanceof EndOfStreamTuple) return;
+
+                    // If LEFT has not changed despite the increment:
+                    //      Produce another set of join tuples
+                    //      for the previous group.
+                    while (lTuple.getValue(leftSlot).compareTo(groupVal.getValue(leftSlot)) == 0) {
+                        for (Tuple groupTuple : groupManager.tuples()) {
+                            outputMan.insertTuple(combineTuples(lTuple, groupTuple));
+                        }
+
+                        // Increment LEFT before checking again
+                        lTuple = null;
+                        while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                        if (lTuple instanceof EndOfStreamTuple) return;
+                    }
+                } finally {
+                    // Group can be released
+                    getStorageManager().deleteFile(groupFile);
+                }
             }
+        } finally {
+            //Streams exhausted so that cleanup() occurs (!!)
+            while (!(lTuple instanceof EndOfStreamTuple)) lTuple = getInputOperator(LEFT).getNext();
+            while (!(rTuple instanceof EndOfStreamTuple)) rTuple = getInputOperator(RIGHT).getNext();
         }
     }
 
@@ -231,6 +236,8 @@ public class MergeJoin extends NestedLoopsJoin {
             //
             ////////////////////////////////////////////
             
+            getStorageManager().deleteFile(super.leftFile);
+            getStorageManager().deleteFile(super.rightFile);
             getStorageManager().deleteFile(outputFile);
         }
         catch (StorageManagerException sme) {
