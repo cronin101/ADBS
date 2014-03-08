@@ -118,13 +118,13 @@ public class MergeJoin extends NestedLoopsJoin {
         Tuple rTuple = null;
         while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
 
-        // If either Operator is empty, there will be an empty join...
-        if ((lTuple instanceof EndOfStreamTuple) || (rTuple instanceof EndOfStreamTuple)) {
-            return;
-        }
-
-        // ...Otherwise, the join algorithm proceeds.
         while (true) {
+            // If either Operator is empty, the join cannot continue...
+            if ((lTuple instanceof EndOfStreamTuple) || (rTuple instanceof EndOfStreamTuple)) {
+                return;
+            }
+            // ...Otherwise, the join algorithm proceeds.
+
             // Advance LEFT relation whilst it trails RIGHT
             while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) < 0) {
                 lTuple = null;
@@ -166,14 +166,14 @@ public class MergeJoin extends NestedLoopsJoin {
                 // If LEFT has not changed despite the increment:
                 //      Produce another set of join tuples
                 //      for the previous group.
-                while (lTuple.getValue(leftSlot) == groupVal.getValue(leftSlot)) {
+                while (lTuple.getValue(leftSlot).compareTo(groupVal.getValue(leftSlot)) == 0) {
                     for (Tuple groupTuple : groupManager.tuples()) {
                         outputMan.insertTuple(combineTuples(lTuple, groupTuple));
                     }
 
                     // Increment LEFT before checking again
                     lTuple = null;
-                    while (lTuple == null) getInputOperator(LEFT).getNext();
+                    while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
                     if (lTuple instanceof EndOfStreamTuple) return;
                 }
             } finally {
