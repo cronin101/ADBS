@@ -171,9 +171,9 @@ public class MergeJoin extends NestedLoopsJoin {
                 }
             }
         } finally {
-            //Streams exhausted so that cleanup() occurs (!!)
-            while (!(lTuple instanceof EndOfStreamTuple)) lTuple = getInputOperator(LEFT).getNext();
-            while (!(rTuple instanceof EndOfStreamTuple)) rTuple = getInputOperator(RIGHT).getNext();
+            // Any open streams are closed.
+            getInputOperator(LEFT).close();
+            getInputOperator(RIGHT).close();
         }
     }
 

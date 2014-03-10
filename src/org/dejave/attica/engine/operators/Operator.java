@@ -57,6 +57,7 @@ public abstract class Operator {
     private List<Tuple> buffer;
     private int bufferIndex;
     private boolean fromBuffer;
+    private boolean cleanUpDone;
 		
     /**
      * Default constructor.
@@ -77,6 +78,7 @@ public abstract class Operator {
      * initialised.
      */
     public Operator(List<Operator> inOps) throws EngineException {
+        cleanUpDone = false;
         tupleCounter = 0;
         //relation = setOutputRelation();
         relation = null;
@@ -213,7 +215,10 @@ public abstract class Operator {
         List<Tuple> t = innerGetNext();
         while (t.size() == 0) t = innerGetNext();
         // clean up if we've seen the end
-        if (t.size() == 1 && t.get(0) instanceof EndOfStreamTuple) cleanup();
+        if (t.size() == 1 && t.get(0) instanceof EndOfStreamTuple){
+            cleanUpDone = true;
+            cleanup();
+        }
         
         return t;
     } // getNext()
@@ -229,6 +234,10 @@ public abstract class Operator {
     protected void cleanup() throws EngineException {
         // default implementation is a no-op
     } // cleanup()
+
+    public void close() throws EngineException {
+        if (!(cleanUpDone)) cleanup();
+    }
 
     
     /**

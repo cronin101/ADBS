@@ -43,6 +43,7 @@ public class JoinGroupManager {
     private void hitDisk() throws StorageManagerException {
         hasHitDisk = true;
         groupFilename = FileUtil.createTempFileName();
+        sm.createFile(groupFilename);
         groupMan = new RelationIOManager(sm, rel, groupFilename);
         for (Tuple tup : tupleBuffer) groupMan.insertTuple(tup);
         tupleBuffer.clear();
