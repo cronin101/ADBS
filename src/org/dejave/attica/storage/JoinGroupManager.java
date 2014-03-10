@@ -16,7 +16,7 @@ import org.dejave.attica.storage.FileUtil;
 
 
 /**
- * JoinGroupManager: Abstracts the storing of a join-group's elements
+ * JoinGroupManager: Abstracts the storage of a join-group's elements
  * and the recall of a join-group's tuples.
  **/
 public class JoinGroupManager {
