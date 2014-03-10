@@ -180,6 +180,18 @@ public abstract class Operator {
         return t;
     } // getNext()
 
+    /**
+     * Wrapper for a wrapper that will cease the endless streams of nullchecking
+     * 
+     * @return the next non-null output tuple of the operator.
+     * @throws EngineException whenever getNext() decides to.
+     * */
+    public Tuple getNextNonNull() throws EngineException {
+        Tuple nnn = null;
+        while (nnn == null) nnn = getNext();
+        return nnn;
+    }
+
     
     /**
      * Fetch the next tuple(s) from this operator.

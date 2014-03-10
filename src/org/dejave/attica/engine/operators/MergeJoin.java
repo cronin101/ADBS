@@ -114,10 +114,8 @@ public class MergeJoin extends NestedLoopsJoin {
 
     void doMergeJoin() throws IOException, StorageManagerException, EngineException {
         // Initialize both 'pointers' as the beginning of streams
-        Tuple lTuple = null;
-        while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
-        Tuple rTuple = null;
-        while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+        Tuple lTuple = getInputOperator(LEFT ).getNextNonNull();
+        Tuple rTuple = getInputOperator(RIGHT).getNextNonNull();
         try {
             while (true) {
                 // If either Operator is empty, the join cannot continue...
@@ -128,15 +126,13 @@ public class MergeJoin extends NestedLoopsJoin {
 
                 // Advance LEFT relation whilst it trails RIGHT
                 while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) < 0) {
-                    lTuple = null;
-                    while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                    lTuple = getInputOperator(LEFT).getNextNonNull();
                     if (lTuple instanceof EndOfStreamTuple) return;
                 }
 
                 // Advance Right relation whilst it trails LEFT
                 while (rTuple.getValue(rightSlot).compareTo(lTuple.getValue(leftSlot)) < 0) {
-                    rTuple = null;
-                    while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                    rTuple = getInputOperator(RIGHT).getNextNonNull();
                     if (rTuple instanceof EndOfStreamTuple) return;
                 }
 
@@ -144,19 +140,18 @@ public class MergeJoin extends NestedLoopsJoin {
                 //      Increment RIGHT, emitting new tuples as join
                 //      but also storing the current 'group'
                 Tuple groupVal = lTuple;
-                JoinGroupManager groupManager = new JoinGroupManager(getOutputRelation(), getStorageManager(), rTuple);
+                JoinGroupManager groupManager = new JoinGroupManager(getInputOperator(RIGHT).getOutputRelation(),
+                        getStorageManager(), rTuple);
                 try {
                     while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
                         groupManager.insertTuple(rTuple);
                         outputMan.insertTuple(combineTuples(lTuple, rTuple));
-                        rTuple = null;
-                        while (rTuple == null) rTuple = getInputOperator(RIGHT).getNext();
+                        rTuple = getInputOperator(RIGHT).getNextNonNull();
                         if (rTuple instanceof EndOfStreamTuple) break;
                     }
 
                     // Advance LEFT now that the group has been exhausted
-                    lTuple = null;
-                    while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                    lTuple = getInputOperator(LEFT).getNextNonNull();
                     if (lTuple instanceof EndOfStreamTuple) return;
 
                     // If LEFT has not changed despite the increment:
@@ -168,8 +163,7 @@ public class MergeJoin extends NestedLoopsJoin {
                         }
 
                         // Increment LEFT before checking again
-                        lTuple = null;
-                        while (lTuple == null) lTuple = getInputOperator(LEFT).getNext();
+                        lTuple = getInputOperator(LEFT).getNextNonNull();
                         if (lTuple instanceof EndOfStreamTuple) return;
                     }
                 } finally {
