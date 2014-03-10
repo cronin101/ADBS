@@ -23,6 +23,7 @@ import org.dejave.attica.engine.predicates.PredicateEvaluator;
 import org.dejave.attica.engine.predicates.PredicateTupleInserter;
 
 import org.dejave.attica.storage.IntermediateTupleIdentifier;
+import org.dejave.attica.storage.JoinGroupManager;
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
@@ -142,14 +143,9 @@ public class MergeJoin extends NestedLoopsJoin {
                 // While slots are equal:
                 //      Increment RIGHT, emitting new tuples as join
                 //      but also storing the current 'group'
-                String groupFile = FileUtil.createTempFileName();
+                Tuple groupVal = lTuple;
+                JoinGroupManager groupManager = new JoinGroupManager(getOutputRelation(), getStorageManager(), rTuple);
                 try {
-                    getStorageManager().createFile(groupFile);
-                    RelationIOManager groupManager = new RelationIOManager(
-                            getStorageManager(), getInputOperator(RIGHT).getOutputRelation(), groupFile);
-
-                    Tuple groupVal = lTuple;
-
                     while (lTuple.getValue(leftSlot).compareTo(rTuple.getValue(rightSlot)) == 0) {
                         groupManager.insertTuple(rTuple);
                         outputMan.insertTuple(combineTuples(lTuple, rTuple));
@@ -177,8 +173,7 @@ public class MergeJoin extends NestedLoopsJoin {
                         if (lTuple instanceof EndOfStreamTuple) return;
                     }
                 } finally {
-                    // Group can be released
-                    getStorageManager().deleteFile(groupFile);
+                    groupManager.close();
                 }
             }
         } finally {
